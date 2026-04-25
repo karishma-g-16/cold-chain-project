@@ -4,25 +4,17 @@ MQTT SUBSCRIBER
 MQTT broker se sensor data receive karta hai,
 InfluxDB mein store karta hai,
 aur Telegram alerts bhejta hai.
-
-Flow:
-1. MQTT broker se connect karo
-2. coldchain/devices/+/readings topic subscribe karo
-3. Har message ko parse karo
-4. InfluxDB mein store karo
-5. Temperature violation check karo
-6. Telegram alert bhejo (agar violation ho)
 """
 
 import json
 import os
 import sys
 import time
+import uuid
 from datetime import datetime
 import paho.mqtt.client as mqtt
 from dotenv import load_dotenv
 
-# Import fix
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
@@ -30,64 +22,50 @@ sys.path.insert(0, parent_dir)
 from backend.database import InfluxDBHandler
 from backend.alert_system import TelegramAlertSystem
 
-# Load env
-env_path = os.path.join(parent_dir, 'config', '.env')
+env_path = os.path.join(parent_dir, "config", ".env")
 load_dotenv(env_path)
 
 
 class MQTTSubscriber:
-    """MQTT Subscriber - data receive karke InfluxDB mein store karta hai"""
 
     def __init__(self):
-        self.broker = os.getenv('MQTT_BROKER', 'localhost')
-        self.port = int(os.getenv('MQTT_PORT', 1993))
-        self.topic = os.getenv('MQTT_TOPIC', 'coldchain/devices/+/readings')
+        self.broker = os.getenv("MQTT_BROKER", "localhost")
+        self.port = int(os.getenv("MQTT_PORT", 1993))
+        self.topic = os.getenv("MQTT_TOPIC", "coldchain/devices/+/readings")
 
-        # MQTT Client
         self.client = mqtt.Client(
-            client_id="coldchain_subscriber",
-            clean_session=True
+            client_id=f"subscriber_{uuid.uuid4().hex[:6]}", clean_session=True
         )
 
-        # Callbacks
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
 
-        # State
         self.is_connected = False
         self.message_count = 0
         self.violation_count = 0
 
-        # InfluxDB
         self.db = InfluxDBHandler()
-
-        # Telegram Alert System
         self.alert = TelegramAlertSystem()
 
     def _on_connect(self, client, userdata, flags, rc):
-        """Connection callback"""
         if rc == 0:
             self.is_connected = True
             print(f"✅ Connected to MQTT Broker at {self.broker}:{self.port}")
-
-            # Subscribe to all device topics
             client.subscribe(self.topic, qos=1)
             print(f"📡 Subscribed to: {self.topic}")
         else:
             print(f"❌ Connection failed: RC={rc}")
 
     def _on_message(self, client, userdata, msg):
-        """Message receive callback"""
         try:
-            # Parse JSON payload
-            payload = json.loads(msg.payload.decode('utf-8'))
+            payload = json.loads(msg.payload.decode("utf-8"))
             self.message_count += 1
 
-            device_id = payload.get('device_id', 'UNKNOWN')
-            temp = payload.get('temperature', 0)
-            humidity = payload.get('humidity', 0)
-            timestamp = payload.get('timestamp', datetime.utcnow().isoformat() + "Z")
+            device_id = payload.get("device_id", "UNKNOWN")
+            temp = payload.get("temperature", 0)
+            humidity = payload.get("humidity", 0)
+            timestamp = payload.get("timestamp", datetime.utcnow().isoformat() + "Z")
 
             temp_status = "🟢" if 2 <= temp <= 8 else "🔴"
 
@@ -97,19 +75,15 @@ class MQTTSubscriber:
             print(f"   {temp_status} Temp: {temp}°C | Humidity: {humidity}%")
             print(f"   🕐 Time: {timestamp}")
 
-            # InfluxDB mein store karo
             if self.db.write_reading(payload):
                 print(f"   💾 Stored in InfluxDB ✅")
             else:
                 print(f"   ❌ Failed to store in InfluxDB")
 
-            # Temperature violation check
             violation = self.db.check_temperature_violation(payload)
             if violation:
                 self.violation_count += 1
                 print(f"   🚨 VIOLATION #{self.violation_count}: {violation}")
-
-                # Telegram alert bhejo
                 self.alert.check_and_alert(payload)
 
         except json.JSONDecodeError as e:
@@ -118,57 +92,33 @@ class MQTTSubscriber:
             print(f"❌ Error processing message: {e}")
 
     def _on_disconnect(self, client, userdata, rc):
-        """Disconnect callback"""
         self.is_connected = False
         if rc != 0:
             print(f"⚠️  Unexpected disconnection. RC={rc}")
 
-    def connect(self) -> bool:
-        """MQTT broker se connect karo"""
-        print(f"🔌 Connecting to MQTT Broker at {self.broker}:{self.port}...")
-
-        try:
-            self.client.connect(self.broker, self.port, keepalive=60)
-            self.client.loop_start()
-
-            # Wait for connection
-            timeout = 5
-            start_time = time.time()
-            while not self.is_connected and (time.time() - start_time) < timeout:
-                time.sleep(0.1)
-
-            return self.is_connected
-
-        except Exception as e:
-            print(f"❌ Connection error: {e}")
-            return False
-
     def run(self):
-        """Main loop - messages receive karta raho"""
+        print(f"🔌 Connecting to MQTT Broker at {self.broker}:{self.port}...")
         print(f"\n🎧 Cold Chain Subscriber Started")
         print(f"📡 Listening on: {self.topic}")
         print(f"💾 Storing to InfluxDB: {self.db.bucket}")
         print(f"📱 Telegram alerts: Active")
         print(f"Press Ctrl+C to stop\n")
 
-        # Startup message bhejo
         self.alert.send_startup_message()
 
         try:
-            while True:
-                time.sleep(1)
-
+            self.client.connect(self.broker, self.port, keepalive=60)
+            self.client.loop_forever()
         except KeyboardInterrupt:
             print(f"\n\n🛑 Stopping subscriber...")
-            print(f"📈 Total messages received: {self.message_count}")
-            print(f"🚨 Total violations detected: {self.violation_count}")
-            self.disconnect()
+            print(f"📈 Total messages: {self.message_count}")
+            print(f"🚨 Total violations: {self.violation_count}")
+            self.client.disconnect()
+            self.db.disconnect()
+            print("👋 Subscriber stopped")
 
     def disconnect(self):
-        """Disconnect karo"""
-        if self.is_connected:
-            self.client.loop_stop()
-            self.client.disconnect()
+        self.client.disconnect()
         self.db.disconnect()
         print("👋 Subscriber stopped")
 
@@ -176,17 +126,10 @@ class MQTTSubscriber:
 def main():
     subscriber = MQTTSubscriber()
 
-    # InfluxDB connect karo
     if not subscriber.db.connect():
         print("❌ Failed to connect to InfluxDB. Exiting.")
         sys.exit(1)
 
-    # MQTT connect karo
-    if not subscriber.connect():
-        print("❌ Failed to connect to MQTT broker. Exiting.")
-        sys.exit(1)
-
-    # Run
     subscriber.run()
 
 

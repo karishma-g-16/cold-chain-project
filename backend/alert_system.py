@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load env
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
-env_path = os.path.join(parent_dir, 'config', '.env')
+env_path = os.path.join(parent_dir, "config", ".env")
 load_dotenv(env_path)
 
 
@@ -21,15 +21,15 @@ class TelegramAlertSystem:
     """Telegram Alert System for Cold Chain violations"""
 
     def __init__(self):
-        self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '')
-        self.chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
 
         # Thresholds
-        self.temp_min = float(os.getenv('TEMP_MIN', 2.0))
-        self.temp_max = float(os.getenv('TEMP_MAX', 8.0))
-        self.temp_warning_min = float(os.getenv('TEMP_WARNING_MIN', 1.0))
-        self.temp_warning_max = float(os.getenv('TEMP_WARNING_MAX', 9.0))
+        self.temp_min = float(os.getenv("TEMP_MIN", 2.0))
+        self.temp_max = float(os.getenv("TEMP_MAX", 8.0))
+        self.temp_warning_min = float(os.getenv("TEMP_WARNING_MIN", 1.0))
+        self.temp_warning_max = float(os.getenv("TEMP_WARNING_MAX", 9.0))
 
         # Alert cooldown - same device ke liye baar baar alert na bhejo
         self.last_alert = {}  # device_id -> last alert timestamp
@@ -39,11 +39,7 @@ class TelegramAlertSystem:
         """Telegram pe message bhejo"""
         try:
             url = f"{self.base_url}/sendMessage"
-            payload = {
-                "chat_id": self.chat_id,
-                "text": message,
-                "parse_mode": "HTML"
-            }
+            payload = {"chat_id": self.chat_id, "text": message, "parse_mode": "HTML"}
             response = requests.post(url, json=payload, timeout=10)
 
             if response.status_code == 200:
@@ -63,12 +59,12 @@ class TelegramAlertSystem:
         Returns:
             bool: True if alert sent
         """
-        device_id = reading.get('device_id', 'UNKNOWN')
-        temp = float(reading.get('temperature', 0))
-        humidity = float(reading.get('humidity', 0))
-        timestamp = reading.get('timestamp', datetime.utcnow().isoformat() + "Z")
-        lat = reading.get('gps', {}).get('lat', 0)
-        lon = reading.get('gps', {}).get('lon', 0)
+        device_id = reading.get("device_id", "UNKNOWN")
+        temp = float(reading.get("temperature", 0))
+        humidity = float(reading.get("humidity", 0))
+        timestamp = reading.get("timestamp", datetime.utcnow().isoformat() + "Z")
+        lat = reading.get("gps", {}).get("lat", 0)
+        lon = reading.get("gps", {}).get("lon", 0)
 
         # Cooldown check
         now = datetime.utcnow().timestamp()
@@ -88,7 +84,7 @@ class TelegramAlertSystem:
                 timestamp=timestamp,
                 lat=lat,
                 lon=lon,
-                reason=f"Temperature too HIGH: {temp}°C (Max allowed: {self.temp_max}°C)"
+                reason=f"Temperature too HIGH: {temp}°C (Max allowed: {self.temp_max}°C)",
             )
         elif temp < self.temp_min:
             alert_message = self._build_alert(
@@ -99,7 +95,7 @@ class TelegramAlertSystem:
                 timestamp=timestamp,
                 lat=lat,
                 lon=lon,
-                reason=f"Temperature too LOW: {temp}°C (Min allowed: {self.temp_min}°C)"
+                reason=f"Temperature too LOW: {temp}°C (Min allowed: {self.temp_min}°C)",
             )
         elif temp > self.temp_warning_max:
             alert_message = self._build_alert(
@@ -110,7 +106,7 @@ class TelegramAlertSystem:
                 timestamp=timestamp,
                 lat=lat,
                 lon=lon,
-                reason=f"Temperature WARNING HIGH: {temp}°C (Warning threshold: {self.temp_warning_max}°C)"
+                reason=f"Temperature WARNING HIGH: {temp}°C (Warning threshold: {self.temp_warning_max}°C)",
             )
         elif temp < self.temp_warning_min:
             alert_message = self._build_alert(
@@ -121,7 +117,7 @@ class TelegramAlertSystem:
                 timestamp=timestamp,
                 lat=lat,
                 lon=lon,
-                reason=f"Temperature WARNING LOW: {temp}°C (Warning threshold: {self.temp_warning_min}°C)"
+                reason=f"Temperature WARNING LOW: {temp}°C (Warning threshold: {self.temp_warning_min}°C)",
             )
 
         if alert_message:
@@ -132,8 +128,9 @@ class TelegramAlertSystem:
 
         return False
 
-    def _build_alert(self, level, device_id, temp, humidity,
-                     timestamp, lat, lon, reason) -> str:
+    def _build_alert(
+        self, level, device_id, temp, humidity, timestamp, lat, lon, reason
+    ) -> str:
         """Alert message build karo"""
         return f"""🚨 <b>COLD CHAIN VIOLATION</b>
 
@@ -192,7 +189,7 @@ if __name__ == "__main__":
         "temperature": 32.5,
         "humidity": 45.0,
         "gps": {"lat": 28.7041, "lon": 77.1025},
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.utcnow().isoformat() + "Z",
     }
 
     if alert.check_and_alert(test_reading):
